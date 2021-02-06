@@ -1,10 +1,10 @@
 use anyhow::Result;
 use klystron::{
     runtime_3d::{launch, App},
-    Engine, FramePacket, Mesh, Object, Vertex
+    Engine, FramePacket, Mesh, Object, Vertex, DrawType
 };
 use nalgebra::{Matrix4, Vector3, Vector4};
-use shaderpark::MaterialAutoUpdate;
+use shaderpark::{MaterialAutoUpdate, print_result};
 
 struct MyApp {
     auto_update: MaterialAutoUpdate,
@@ -21,7 +21,10 @@ impl App for MyApp {
     fn new(engine: &mut dyn Engine, _args: Self::Args) -> Result<Self> {
         let (vertices, indices) = ravioli(1., 1.8, 1.6, 30);
         let mesh = engine.add_mesh(&vertices, &indices)?;
-        let auto_update = MaterialAutoUpdate::new("./shaders", engine, None)?;
+        let mut auto_update = MaterialAutoUpdate::new("./shaders", engine, DrawType::Triangles, None)?;
+        auto_update.manual_update("./shaders/unlit.frag")?;
+        auto_update.manual_update("./shaders/unlit.vert")?;
+
         Ok(Self {
             mesh,
             time: 0.,
@@ -30,7 +33,7 @@ impl App for MyApp {
     }
 
     fn next_frame(&mut self, engine: &mut dyn Engine) -> Result<FramePacket> {
-        self.auto_update.update(engine)?;
+        print_result(self.auto_update.update(engine));
 
         //let scale = 200.;
         let scale = 1.;

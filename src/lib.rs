@@ -16,6 +16,7 @@ pub struct MaterialAutoUpdate {
     compiler: Compiler,
     vert: Vec<u8>,
     frag: Vec<u8>,
+    draw_type: DrawType,
     prefix: Option<String>,
 }
 
@@ -25,6 +26,7 @@ impl MaterialAutoUpdate {
     pub fn new(
         shader_dir: impl AsRef<Path>,
         engine: &mut dyn Engine,
+        draw_type: DrawType,
         prefix: Option<String>,
     ) -> Result<Self> {
         let compiler = Compiler::new().context("Shaderc failed to create compiler")?;
@@ -32,7 +34,7 @@ impl MaterialAutoUpdate {
         let (file_watch_tx, file_watch_rx) = channel();
         let mut file_watcher = watcher(file_watch_tx.clone(), Duration::from_millis(500))?;
         file_watcher.watch(shader_dir, RecursiveMode::NonRecursive)?;
-        let material = engine.add_material(UNLIT_VERT, UNLIT_FRAG, DrawType::Triangles)?;
+        let material = engine.add_material(UNLIT_VERT, UNLIT_FRAG, draw_type)?;
 
         Ok(Self {
             compiler,
@@ -43,6 +45,7 @@ impl MaterialAutoUpdate {
             file_watch_tx,
             material,
             prefix,
+            draw_type,
         })
     }
 
@@ -102,11 +105,19 @@ impl MaterialAutoUpdate {
         }
 
         engine.remove_material(self.material)?;
-        self.material = engine.add_material(&self.vert, &self.frag, DrawType::Triangles)?;
+        self.material = engine.add_material(&self.vert, &self.frag, self.draw_type)?;
 
         Ok(Some(format!(
             "Successfully loaded {:?} shader: {:?}",
             kind, path
         )))
+    }
+}
+
+pub fn print_result(res: Result<Option<String>>) {
+    match res {
+        Err(e) => eprintln!("Error: {:#}", e),
+        Ok(Some(msg)) => println!("{}", msg),
+        _ => (),
     }
 }
