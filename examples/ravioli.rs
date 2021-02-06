@@ -1,15 +1,9 @@
-use anyhow::{format_err, Context, Result};
+use anyhow::Result;
 use klystron::{
     runtime_3d::{launch, App},
-    DrawType, Engine, FramePacket, Material, Mesh, Object, Vertex, UNLIT_FRAG, UNLIT_VERT,
+    Engine, FramePacket, Mesh, Object, Vertex
 };
 use nalgebra::{Matrix4, Vector3, Vector4};
-use notify::{watcher, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use shaderc::{Compiler, ShaderKind};
-use std::fs;
-use std::path::Path;
-use std::sync::mpsc::{channel, Receiver};
-use std::time::Duration;
 use shaderpark::MaterialAutoUpdate;
 
 struct MyApp {
@@ -27,7 +21,7 @@ impl App for MyApp {
     fn new(engine: &mut dyn Engine, _args: Self::Args) -> Result<Self> {
         let (vertices, indices) = ravioli(1., 1.8, 1.6, 30);
         let mesh = engine.add_mesh(&vertices, &indices)?;
-        let auto_update = MaterialAutoUpdate::new("./shaders", engine)?;
+        let auto_update = MaterialAutoUpdate::new("./shaders", engine, None)?;
         Ok(Self {
             mesh,
             time: 0.,
@@ -36,7 +30,7 @@ impl App for MyApp {
     }
 
     fn next_frame(&mut self, engine: &mut dyn Engine) -> Result<FramePacket> {
-        self.auto_update.update(engine);
+        self.auto_update.update(engine)?;
 
         //let scale = 200.;
         let scale = 1.;

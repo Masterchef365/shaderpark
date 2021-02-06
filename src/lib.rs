@@ -1,9 +1,5 @@
 use anyhow::{format_err, Context, Result};
-use klystron::{
-    runtime_3d::{launch, App},
-    DrawType, Engine, FramePacket, Material, Mesh, Object, Vertex, UNLIT_FRAG, UNLIT_VERT,
-};
-use nalgebra::{Matrix4, Vector3, Vector4};
+use klystron::{DrawType, Engine, Material, UNLIT_FRAG, UNLIT_VERT};
 use notify::{watcher, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use shaderc::{Compiler, ShaderKind};
 use std::fs;
@@ -11,6 +7,7 @@ use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
+/// Material update tracker
 pub struct MaterialAutoUpdate {
     _file_watcher: RecommendedWatcher,
     file_watch_rx: Receiver<DebouncedEvent>,
@@ -19,10 +16,17 @@ pub struct MaterialAutoUpdate {
     compiler: Compiler,
     vert: Vec<u8>,
     frag: Vec<u8>,
+    prefix: Option<String>,
 }
 
 impl MaterialAutoUpdate {
-    pub fn new(shader_dir: impl AsRef<Path>, engine: &mut dyn Engine) -> Result<Self> {
+    /// Create a new Material update tracker; will initialize using default materials.
+    /// Filters by prefix, if specified
+    pub fn new(
+        shader_dir: impl AsRef<Path>,
+        engine: &mut dyn Engine,
+        prefix: Option<String>,
+    ) -> Result<Self> {
         let compiler = Compiler::new().context("Shaderc failed to create compiler")?;
 
         let (file_watch_tx, file_watch_rx) = channel();
@@ -38,38 +42,49 @@ impl MaterialAutoUpdate {
             file_watch_rx,
             file_watch_tx,
             material,
+            prefix,
         })
     }
 
+    /// Manually update a shader. Decides type based on file extension
     pub fn manual_update(&mut self, path: impl AsRef<Path>) -> Result<()> {
-        Ok(self.file_watch_tx.send(DebouncedEvent::Write(path.as_ref().into()))?)
+        Ok(self
+            .file_watch_tx
+            .send(DebouncedEvent::Write(path.as_ref().into()))?)
     }
 
     pub fn material(&self) -> Material {
         self.material
     }
 
-    pub fn update(&mut self, engine: &mut dyn Engine) {
+    /// Poll for a new shader update, and act accordingly
+    pub fn update(&mut self, engine: &mut dyn Engine) -> Result<Option<String>> {
         match self.file_watch_rx.try_recv() {
             Ok(DebouncedEvent::Create(p)) | Ok(DebouncedEvent::Write(p)) => {
-                if let Err(e) = self.update_shader(&p, engine) {
-                    println!("Shader compilation error: {:?}", e);
-                }
+                self.update_shader(&p, engine)
             }
-            _ => (),
+            _ => Ok(None),
         }
     }
 
-    fn update_shader(&mut self, path: &Path, engine: &mut dyn Engine) -> Result<()> {
+    /// Internal method used to update material
+    fn update_shader(&mut self, path: &Path, engine: &mut dyn Engine) -> Result<Option<String>> {
+        if let Some(prefix) = self.prefix.as_ref() {
+            let has_prefix = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.starts_with(prefix))
+                .unwrap_or(false);
+            if !has_prefix {
+                return Ok(None);
+            }
+        }
+
         let kind = match path.extension().and_then(|v| v.to_str()) {
             Some("vert") => ShaderKind::Vertex,
             Some("frag") => ShaderKind::Fragment,
-            None | Some(_) => return Ok(()),
+            None | Some(_) => return Ok(None),
         };
-
-        if path.file_stem().unwrap() != "unlit" {
-            return Ok(());
-        }
 
         let source = fs::read_to_string(path)
             .with_context(|| format_err!("File error loading {:?}", path))?;
@@ -89,8 +104,9 @@ impl MaterialAutoUpdate {
         engine.remove_material(self.material)?;
         self.material = engine.add_material(&self.vert, &self.frag, DrawType::Triangles)?;
 
-        println!("Successfully loaded {:?} shader: {:?}", kind, path);
-
-        Ok(())
+        Ok(Some(format!(
+            "Successfully loaded {:?} shader: {:?}",
+            kind, path
+        )))
     }
 }
